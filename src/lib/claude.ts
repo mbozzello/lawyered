@@ -17,7 +17,12 @@ You provide precise, business-practical legal analysis. Focus on:
 - Providing actionable redline suggestions with legal reasoning
 - Being concise but thorough
 
-Always respond with valid JSON matching the requested schema.`;
+Always respond with valid JSON matching the requested schema. Do not wrap your response in markdown code fences.`;
+
+function parseJSON(text: string) {
+  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  return JSON.parse(cleaned);
+}
 
 export async function classifyContract(
   text: string
@@ -50,7 +55,7 @@ ${text.slice(0, 8000)}`,
 
   const content = response.content[0];
   if (content.type !== "text") throw new Error("Unexpected response type");
-  return JSON.parse(content.text);
+  return parseJSON(content.text);
 }
 
 export async function analyzeClausesWithPlaybook(
@@ -104,8 +109,7 @@ ${text}`,
   const content = response.content[0];
   if (content.type !== "text") throw new Error("Unexpected response type");
 
-  const jsonStr = content.text.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-  return JSON.parse(jsonStr);
+  return parseJSON(content.text);
 }
 
 export async function generateSummary(
@@ -149,6 +153,5 @@ ${text.slice(0, 4000)}`,
   const content = response.content[0];
   if (content.type !== "text") throw new Error("Unexpected response type");
 
-  const jsonStr = content.text.replace(/```json\n?/g, "").replace(/```\n?/g, "");
-  return JSON.parse(jsonStr);
+  return parseJSON(content.text);
 }
