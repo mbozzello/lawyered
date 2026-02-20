@@ -54,10 +54,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ contractId: contract.id });
   } catch (error) {
     console.error("Contract upload error:", error);
-    return NextResponse.json(
-      { error: "Failed to process the uploaded file." },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to process the uploaded file.";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
