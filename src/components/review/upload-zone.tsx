@@ -102,7 +102,9 @@ export function UploadZone() {
           await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
           polls++;
 
-          const statusRes = await fetch(`/api/contracts/${contractId}`);
+          const statusRes = await fetch(`/api/contracts/${contractId}/status`, {
+            cache: "no-store",
+          });
           if (!statusRes.ok) continue;
 
           const contract = await statusRes.json();

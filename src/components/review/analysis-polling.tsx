@@ -32,7 +32,9 @@ export function AnalysisPolling({ contractId }: { contractId: string }) {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`/api/contracts/${contractId}`);
+        const res = await fetch(`/api/contracts/${contractId}/status`, {
+          cache: "no-store",
+        });
         if (!res.ok) return;
         const contract = await res.json();
 
