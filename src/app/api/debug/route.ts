@@ -23,5 +23,13 @@ export async function GET() {
     apiTest = `ERROR: ${error instanceof Error ? error.message : String(error)}`;
   }
 
-  return NextResponse.json({ keyInfo, apiTest });
+  const envCheck = {
+    DATABASE_URL: (process.env.DATABASE_URL || "").slice(0, 20),
+    NEXTAUTH_SECRET: (process.env.NEXTAUTH_SECRET || "").length > 0,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL || "",
+    NODE_ENV: process.env.NODE_ENV || "",
+    envKeys: Object.keys(process.env).filter(k => k.includes("ANTHROPIC") || k.includes("NEXT") || k.includes("DATABASE")),
+  };
+
+  return NextResponse.json({ keyInfo, apiTest, envCheck });
 }

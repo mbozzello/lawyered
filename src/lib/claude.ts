@@ -6,9 +6,13 @@ import type {
   PlaybookRuleData,
 } from "@/types";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
+function getClient() {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not set. Check your environment variables.");
+  }
+  return new Anthropic({ apiKey });
+}
 
 const SYSTEM_PROMPT = `You are a senior legal AI assistant helping an experienced corporate counsel (16+ years, Harvard Law) review contracts.
 You provide precise, business-practical legal analysis. Focus on:
@@ -38,7 +42,7 @@ function extractJSON(response: Anthropic.Message) {
 export async function classifyContract(
   text: string
 ): Promise<ContractClassification> {
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 1024,
     system: SYSTEM_PROMPT,
@@ -80,7 +84,7 @@ export async function analyzeClausesWithPlaybook(
     )
     .join("\n");
 
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 8192,
     system: SYSTEM_PROMPT,
@@ -126,7 +130,7 @@ export async function generateSummary(
   const highRiskClauses = clauses.filter((c) => c.riskLevel === "high");
   const violations = clauses.flatMap((c) => c.playbookViolations);
 
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 2048,
     system: SYSTEM_PROMPT,
