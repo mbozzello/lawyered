@@ -122,13 +122,16 @@ export async function POST(
   } catch (error) {
     console.error("Analysis error:", error);
 
+    const message =
+      error instanceof Error ? error.message : "Analysis failed. Please try again.";
+
     await prisma.contract.update({
       where: { id },
       data: { status: "error" },
     });
 
     return NextResponse.json(
-      { error: "Analysis failed. Please try again." },
+      { error: message },
       { status: 500 }
     );
   }
