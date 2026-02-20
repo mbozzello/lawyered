@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
 import { ArrowLeft, Download, FileText } from "lucide-react";
+import { AnalysisPolling } from "@/components/review/analysis-polling";
 
 export default async function ReviewResultPage({
   params,
@@ -136,13 +137,7 @@ export default async function ReviewResultPage({
           </TabsContent>
         </Tabs>
       ) : contract.status === "analyzing" ? (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="mb-4 h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <p className="text-lg font-medium">Analyzing contract...</p>
-          <p className="text-sm text-muted-foreground">
-            This may take 30-60 seconds.
-          </p>
-        </div>
+        <AnalysisPolling contractId={contract.id} />
       ) : contract.status === "error" ? (
         <div className="flex flex-col items-center justify-center py-20">
           <p className="text-lg font-medium text-destructive">

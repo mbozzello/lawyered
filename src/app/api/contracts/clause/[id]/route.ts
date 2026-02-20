@@ -27,9 +27,25 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Build update data — accept status, userRedline, userNote
+  const data: Record<string, string> = {};
+  if (typeof body.status === "string") {
+    data.status = body.status.trim();
+  }
+  if (typeof body.userRedline === "string") {
+    data.userRedline = body.userRedline.trim() || "";
+  }
+  if (typeof body.userNote === "string") {
+    data.userNote = body.userNote.trim() || "";
+  }
+
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+  }
+
   const updated = await prisma.clauseAnalysis.update({
     where: { id },
-    data: { status: body.status },
+    data,
   });
 
   return NextResponse.json(updated);

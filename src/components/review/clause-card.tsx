@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import {
   AlertTriangle,
@@ -18,6 +19,9 @@ import {
   ChevronUp,
   Check,
   X,
+  Pencil,
+  Save,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,6 +43,8 @@ interface ClauseCardProps {
     playbookViolations: PlaybookViolation[];
     redlineSuggestion: string | null;
     redlineExplanation: string | null;
+    userRedline: string | null;
+    userNote: string | null;
     status: string;
   };
 }
@@ -87,7 +93,15 @@ function riskBorderColor(risk: string) {
 export function ClauseCard({ clause }: ClauseCardProps) {
   const [expanded, setExpanded] = useState(clause.riskLevel === "high");
   const [redlineStatus, setRedlineStatus] = useState(clause.status);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [userRedline, setUserRedline] = useState(clause.userRedline || "");
+  const [userNote, setUserNote] = useState(clause.userNote || "");
+  const [savedRedline, setSavedRedline] = useState(clause.userRedline || "");
+  const [savedNote, setSavedNote] = useState(clause.userNote || "");
   const violations = clause.playbookViolations as PlaybookViolation[];
+
+  const hasUserEdits = savedRedline || savedNote;
 
   const handleRedlineAction = async (action: "accepted" | "rejected") => {
     try {
@@ -102,6 +116,39 @@ export function ClauseCard({ clause }: ClauseCardProps) {
       );
     } catch {
       toast.error("Failed to update redline status");
+    }
+  };
+
+  const handleStartEdit = () => {
+    if (!userRedline && clause.redlineSuggestion) {
+      setUserRedline(clause.redlineSuggestion);
+    }
+    setEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setUserRedline(savedRedline);
+    setUserNote(savedNote);
+    setEditing(false);
+  };
+
+  const handleSaveEdit = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/contracts/clause/${clause.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userRedline, userNote }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      setSavedRedline(userRedline);
+      setSavedNote(userNote);
+      setEditing(false);
+      toast.success("Your edits saved");
+    } catch {
+      toast.error("Failed to save edits");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -125,12 +172,35 @@ export function ClauseCard({ clause }: ClauseCardProps) {
                 {violations.length} violation{violations.length > 1 ? "s" : ""}
               </Badge>
             )}
+            {hasUserEdits && (
+              <Badge
+                variant="outline"
+                className="text-xs border-blue-300 text-blue-600 dark:text-blue-400"
+              >
+                Edited
+              </Badge>
+            )}
           </div>
-          {expanded ? (
-            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-          )}
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!expanded) setExpanded(true);
+                handleStartEdit();
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              <span className="sr-only">Edit</span>
+            </Button>
+            {expanded ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </div>
         </div>
       </CardHeader>
 
@@ -191,13 +261,13 @@ export function ClauseCard({ clause }: ClauseCardProps) {
             </div>
           )}
 
-          {/* Redline Suggestion */}
+          {/* AI Suggested Redline */}
           {clause.redlineSuggestion && (
             <>
               <Separator />
               <div>
                 <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
-                  Suggested Redline
+                  AI Suggestion
                 </p>
                 <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
                   <p className="mb-2 text-sm leading-relaxed">
@@ -232,6 +302,84 @@ export function ClauseCard({ clause }: ClauseCardProps) {
                     Redline {redlineStatus}
                   </p>
                 )}
+              </div>
+            </>
+          )}
+
+          {/* User's Saved Edits (read-only view when not editing) */}
+          {!editing && savedRedline && (
+            <>
+              <Separator />
+              <div>
+                <p className="mb-2 text-xs font-medium uppercase text-muted-foreground">
+                  Your Redline
+                </p>
+                <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-500/5 p-3">
+                  <p className="text-sm leading-relaxed">{savedRedline}</p>
+                </div>
+              </div>
+            </>
+          )}
+          {!editing && savedNote && (
+            <div>
+              <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">
+                Your Notes
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {savedNote}
+              </p>
+            </div>
+          )}
+
+          {/* Inline Edit Mode */}
+          {editing && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-muted-foreground">
+                    Your Redline
+                  </label>
+                  <Textarea
+                    value={userRedline}
+                    onChange={(e) => setUserRedline(e.target.value)}
+                    placeholder="Write your proposed revision for this clause..."
+                    className="min-h-24 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium uppercase text-muted-foreground">
+                    Notes
+                  </label>
+                  <Textarea
+                    value={userNote}
+                    onChange={(e) => setUserNote(e.target.value)}
+                    placeholder="Add notes or comments about this clause..."
+                    className="min-h-16 text-sm"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={handleSaveEdit}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    ) : (
+                      <Save className="mr-1 h-3 w-3" />
+                    )}
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCancelEdit}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
             </>
           )}

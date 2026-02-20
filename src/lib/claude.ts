@@ -5,6 +5,7 @@ import type {
   ReviewSummaryData,
   PlaybookRuleData,
 } from "@/types";
+import type { TextChunk } from "./chunker";
 
 function getClient() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -162,4 +163,155 @@ ${text.slice(0, 4000)}`,
   });
 
   return extractJSON(response);
+}
+
+// --- Chunked parallel analysis for large contracts ---
+
+const CONCURRENCY_LIMIT = 4;
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 2000;
+
+function buildRulesText(rules: PlaybookRuleData[]): string {
+  return rules
+    .filter((r) => r.enabled)
+    .map(
+      (r) =>
+        `- [${r.severity.toUpperCase()}] ${r.name} (${r.category}): ${r.condition}`
+    )
+    .join("\n");
+}
+
+export async function analyzeChunk(
+  chunkText: string,
+  chunkIndex: number,
+  totalChunks: number,
+  contractType: string,
+  rules: PlaybookRuleData[]
+): Promise<ClauseData[]> {
+  const rulesText = buildRulesText(rules);
+
+  const response = await getClient().messages.create({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 4096,
+    system: SYSTEM_PROMPT,
+    messages: [
+      {
+        role: "user",
+        content: `You are analyzing section ${chunkIndex + 1} of ${totalChunks} of a ${contractType} contract. Analyze ONLY the clauses present in this section.
+
+For each clause:
+1. Identify the clause type
+2. Assess risk level (high/medium/low)
+3. Check against the playbook rules below
+4. Provide a plain-language explanation
+5. Suggest redline edits if needed
+
+If a clause appears cut off at the beginning or end, still analyze what is present.
+
+PLAYBOOK RULES:
+${rulesText || "No custom rules — use standard corporate counsel best practices."}
+
+Respond with a JSON array. Keep "originalText" to the first 300 characters (truncate with "..." if longer). Keep "redlineSuggestion" concise.
+
+[{
+  "clauseNumber": 1,
+  "clauseType": "Indemnification" | "Limitation of Liability" | "Termination" | "Confidentiality" | "IP Ownership" | "Data Privacy" | "Non-Compete" | "Payment Terms" | "Representations & Warranties" | "Governing Law" | "Assignment" | "Force Majeure" | "Insurance" | "Auto-Renewal" | "SLA" | "Other",
+  "originalText": "first 300 chars of the clause text...",
+  "riskLevel": "high" | "medium" | "low",
+  "explanation": "plain-language explanation",
+  "playbookViolations": [{"ruleName": "...", "category": "...", "severity": "critical|warning|info", "description": "..."}],
+  "redlineSuggestion": "concise suggested revision (null if acceptable)",
+  "redlineExplanation": "why this change is recommended (null if no redline)"
+}]
+
+If no clauses are found in this section, return an empty array: []
+
+CONTRACT SECTION:
+${chunkText}`,
+      },
+    ],
+  });
+
+  return extractJSON(response);
+}
+
+async function analyzeChunkWithRetry(
+  chunkText: string,
+  chunkIndex: number,
+  totalChunks: number,
+  contractType: string,
+  rules: PlaybookRuleData[]
+): Promise<ClauseData[]> {
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await analyzeChunk(chunkText, chunkIndex, totalChunks, contractType, rules);
+    } catch (error) {
+      if (attempt === MAX_RETRIES) throw error;
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function runNext(): Promise<void> {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      results[index] = await tasks[index]();
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, tasks.length) }, () => runNext())
+  );
+  return results;
+}
+
+function deduplicateClauses(clauses: ClauseData[]): ClauseData[] {
+  const seen = new Set<string>();
+  return clauses.filter((clause) => {
+    const key = clause.originalText.slice(0, 100).toLowerCase().trim();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export async function analyzeClausesChunked(
+  chunks: TextChunk[],
+  contractType: string,
+  rules: PlaybookRuleData[],
+  onChunkComplete?: (chunkIndex: number, clauses: ClauseData[]) => Promise<void>
+): Promise<ClauseData[]> {
+  const chunkResults: ClauseData[][] = [];
+
+  const tasks = chunks.map((chunk) => async () => {
+    const clauses = await analyzeChunkWithRetry(
+      chunk.text,
+      chunk.index,
+      chunks.length,
+      contractType,
+      rules
+    );
+    chunkResults[chunk.index] = clauses;
+    if (onChunkComplete) {
+      await onChunkComplete(chunk.index, clauses);
+    }
+    return clauses;
+  });
+
+  await runWithConcurrency(tasks, CONCURRENCY_LIMIT);
+
+  // Flatten, deduplicate overlaps, renumber
+  const allClauses = deduplicateClauses(chunkResults.flat());
+  return allClauses.map((clause, idx) => ({
+    ...clause,
+    clauseNumber: idx + 1,
+  }));
 }

@@ -22,12 +22,34 @@ const ACCEPTED_TYPES = [
 
 const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt"];
 
+const POLL_INTERVAL = 2000;
+const MAX_POLLS = 150; // 5 minutes max
+
+function stageLabel(stage: string | null | undefined): string {
+  switch (stage) {
+    case "classifying":
+      return "Classifying contract type...";
+    case "analyzing":
+      return "Analyzing clauses with AI...";
+    case "summarizing":
+      return "Generating executive summary...";
+    case "complete":
+      return "Complete!";
+    default:
+      return "Processing...";
+  }
+}
+
 export function UploadZone() {
   const router = useRouter();
   const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [stage, setStage] = useState("");
+  const [chunkInfo, setChunkInfo] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -46,15 +68,14 @@ export function UploadZone() {
       }
 
       setUploading(true);
-      setProgress(10);
+      setProgress(5);
       setStage("Uploading contract...");
+      setChunkInfo(null);
 
       try {
+        // Step 1: Upload
         const formData = new FormData();
         formData.append("file", file);
-
-        setProgress(30);
-        setStage("Parsing document...");
 
         const uploadRes = await fetch("/api/contracts", {
           method: "POST",
@@ -68,24 +89,48 @@ export function UploadZone() {
 
         const { contractId } = await uploadRes.json();
 
-        setProgress(50);
-        setStage("Analyzing with AI...");
+        setProgress(8);
+        setStage("Starting analysis...");
 
-        const analyzeRes = await fetch(
-          `/api/contracts/${contractId}/analyze`,
-          { method: "POST" }
-        );
+        // Step 2: Fire-and-forget analyze call
+        fetch(`/api/contracts/${contractId}/analyze`, { method: "POST" });
 
-        if (!analyzeRes.ok) {
-          const err = await analyzeRes.json();
-          throw new Error(err.error || "Analysis failed");
+        // Step 3: Poll for real progress
+        let polls = 0;
+
+        while (polls < MAX_POLLS) {
+          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+          polls++;
+
+          const statusRes = await fetch(`/api/contracts/${contractId}`);
+          if (!statusRes.ok) continue;
+
+          const contract = await statusRes.json();
+
+          setProgress(contract.analysisProgress || 8);
+          setStage(stageLabel(contract.analysisStage));
+
+          if (contract.totalChunks && contract.totalChunks > 1) {
+            setChunkInfo({
+              completed: contract.completedChunks || 0,
+              total: contract.totalChunks,
+            });
+          }
+
+          if (contract.status === "completed") {
+            setProgress(100);
+            setStage("Complete!");
+            toast.success("Contract analyzed successfully!");
+            router.push(`/dashboard/review/${contractId}`);
+            return;
+          }
+
+          if (contract.status === "error") {
+            throw new Error("Analysis failed. Please try again.");
+          }
         }
 
-        setProgress(100);
-        setStage("Complete!");
-
-        toast.success("Contract analyzed successfully!");
-        router.push(`/dashboard/review/${contractId}`);
+        throw new Error("Analysis timed out. Please check the review history.");
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : "Something went wrong"
@@ -93,6 +138,7 @@ export function UploadZone() {
         setUploading(false);
         setProgress(0);
         setStage("");
+        setChunkInfo(null);
       }
     },
     [router]
@@ -123,8 +169,17 @@ export function UploadZone() {
           <Loader2 className="mb-4 h-10 w-10 animate-spin text-primary" />
           <p className="mb-2 text-lg font-medium">{stage}</p>
           <Progress value={progress} className="w-full max-w-xs" />
+          {chunkInfo && chunkInfo.total > 1 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Analyzing section{" "}
+              {Math.min(chunkInfo.completed + 1, chunkInfo.total)} of{" "}
+              {chunkInfo.total}
+            </p>
+          )}
           <p className="mt-2 text-sm text-muted-foreground">
-            This may take 30-60 seconds for longer contracts.
+            {chunkInfo && chunkInfo.total > 1
+              ? "Large contract detected — analyzing in parallel sections."
+              : "This may take 30-60 seconds for longer contracts."}
           </p>
         </CardContent>
       </Card>

@@ -19,14 +19,18 @@ model User {
 }
 
 model Contract {
-  id           String   @id @default(cuid())
-  userId       String
-  filename     String
-  originalText String
-  contractType String?
-  paperType    String?
-  status       String   @default("pending")
-  createdAt    DateTime @default(now())
+  id               String   @id @default(cuid())
+  userId           String
+  filename         String
+  originalText     String
+  contractType     String?
+  paperType        String?
+  status           String   @default("pending")
+  analysisProgress Int      @default(0)
+  analysisStage    String?
+  totalChunks      Int?
+  completedChunks  Int      @default(0)
+  createdAt        DateTime @default(now())
 
   user    User             @relation(fields: [userId], references: [id])
   clauses ClauseAnalysis[]
@@ -76,6 +80,8 @@ model ClauseAnalysis {
   playbookViolations  Json    @default("[]")
   redlineSuggestion   String?
   redlineExplanation  String?
+  userRedline         String?
+  userNote            String?
   status              String  @default("pending")
 
   contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
