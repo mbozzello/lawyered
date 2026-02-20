@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -17,7 +18,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FileText, Search } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FileText, Search, Trash2 } from "lucide-react";
 
 interface Contract {
   id: string;
@@ -49,6 +58,8 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<Contract | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     fetch("/api/contracts")
@@ -58,6 +69,22 @@ export default function HistoryPage() {
         setLoading(false);
       });
   }, []);
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/contracts/${deleteTarget.id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setContracts((prev) => prev.filter((c) => c.id !== deleteTarget.id));
+      }
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  }
 
   const filtered = contracts.filter((c) => {
     const matchesSearch = c.filename
@@ -124,15 +151,17 @@ export default function HistoryPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {filtered.map((contract) => (
-              <Link
+              <div
                 key={contract.id}
-                href={`/dashboard/review/${contract.id}`}
                 className="flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/50"
               >
-                <div className="flex items-center gap-3">
-                  <FileText className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="font-medium">{contract.filename}</p>
+                <Link
+                  href={`/dashboard/review/${contract.id}`}
+                  className="flex flex-1 items-center gap-3 min-w-0"
+                >
+                  <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{contract.filename}</p>
                     <p className="text-sm text-muted-foreground">
                       {contract.contractType || "Unknown type"}
                       {contract.paperType && (
@@ -148,8 +177,8 @@ export default function HistoryPage() {
                       {new Date(contract.createdAt).toLocaleDateString()}
                     </p>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
+                </Link>
+                <div className="flex items-center gap-2 shrink-0 ml-3">
                   {contract.summary && (
                     <Badge
                       variant={riskBadgeVariant(contract.summary.overallRisk)}
@@ -162,12 +191,61 @@ export default function HistoryPage() {
                       ? "Reviewed"
                       : contract.status}
                   </Badge>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setDeleteTarget(contract);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="sr-only">Delete</span>
+                  </Button>
                 </div>
-              </Link>
+              </div>
             ))}
           </CardContent>
         </Card>
       )}
+
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Contract</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-foreground">
+                {deleteTarget?.filename}
+              </span>
+              ? This will permanently remove the contract and all its analysis
+              data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

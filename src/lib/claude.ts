@@ -86,7 +86,7 @@ export async function analyzeClausesWithPlaybook(
 
   const response = await getClient().messages.create({
     model: "claude-sonnet-4-5-20250929",
-    max_tokens: 8192,
+    max_tokens: 16000,
     system: SYSTEM_PROMPT,
     messages: [
       {
@@ -101,15 +101,16 @@ export async function analyzeClausesWithPlaybook(
 PLAYBOOK RULES:
 ${rulesText || "No custom rules — use standard corporate counsel best practices."}
 
-Respond with a JSON array of clauses:
+Respond with a JSON array of clauses. IMPORTANT: Keep "originalText" to the first 300 characters of the clause (truncate with "..." if longer). Keep "redlineSuggestion" concise — summarize the key change rather than rewriting the entire clause.
+
 [{
   "clauseNumber": 1,
   "clauseType": "Indemnification" | "Limitation of Liability" | "Termination" | "Confidentiality" | "IP Ownership" | "Data Privacy" | "Non-Compete" | "Payment Terms" | "Representations & Warranties" | "Governing Law" | "Assignment" | "Force Majeure" | "Insurance" | "Auto-Renewal" | "SLA" | "Other",
-  "originalText": "exact text of the clause",
+  "originalText": "first 300 chars of the clause text...",
   "riskLevel": "high" | "medium" | "low",
   "explanation": "plain-language explanation of what this clause does and any concerns",
   "playbookViolations": [{"ruleName": "...", "category": "...", "severity": "critical|warning|info", "description": "why this violates the rule"}],
-  "redlineSuggestion": "suggested revised text (null if clause is acceptable)",
+  "redlineSuggestion": "concise suggested revision (null if clause is acceptable)",
   "redlineExplanation": "why this change is recommended (null if no redline)"
 }]
 
