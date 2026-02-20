@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+
+  contracts        Contract[]
+  playbookProfiles PlaybookProfile[]
+}
+
+model Contract {
+  id           String   @id @default(cuid())
+  userId       String
+  filename     String
+  originalText String
+  contractType String?
+  paperType    String?
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+
+  user    User             @relation(fields: [userId], references: [id])
+  clauses ClauseAnalysis[]
+  summary ReviewSummary?
+
+  @@index([userId])
+}
+
+model PlaybookProfile {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  contractType String?
+  description  String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  user  User           @relation(fields: [userId], references: [id])
+  rules PlaybookRule[]
+
+  @@index([userId])
+}
+
+model PlaybookRule {
+  id          String  @id @default(cuid())
+  profileId   String
+  name        String
+  category    String
+  description String
+  condition   String
+  severity    String  @default("warning")
+  enabled     Boolean @default(true)
+
+  profile PlaybookProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+}
+
+model ClauseAnalysis {
+  id                  String  @id @default(cuid())
+  contractId          String
+  clauseNumber        Int
+  clauseType          String
+  originalText        String
+  riskLevel           String
+  explanation         String
+  playbookViolations  Json    @default("[]")
+  redlineSuggestion   String?
+  redlineExplanation  String?
+  status              String  @default("pending")
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  @@index([contractId])
+}
+
+model ReviewSummary {
+  id               String   @id @default(cuid())
+  contractId       String   @unique
+  overallRisk      String
+  executiveSummary String
+  keyFindings      Json     @default("[]")
+  missingClauses   Json     @default("[]")
+  createdAt        DateTime @default(now())
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+}
