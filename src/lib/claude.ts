@@ -19,9 +19,20 @@ You provide precise, business-practical legal analysis. Focus on:
 
 Always respond with valid JSON matching the requested schema. Do not wrap your response in markdown code fences.`;
 
-function parseJSON(text: string) {
-  const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  return JSON.parse(cleaned);
+function extractJSON(response: Anthropic.Message) {
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("Claude response was truncated. The contract may be too long.");
+  }
+
+  const content = response.content[0];
+  if (content.type !== "text") throw new Error("Unexpected response type");
+
+  const cleaned = content.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    throw new Error(`Claude returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
 }
 
 export async function classifyContract(
@@ -53,9 +64,7 @@ ${text.slice(0, 8000)}`,
     ],
   });
 
-  const content = response.content[0];
-  if (content.type !== "text") throw new Error("Unexpected response type");
-  return parseJSON(content.text);
+  return extractJSON(response);
 }
 
 export async function analyzeClausesWithPlaybook(
@@ -106,10 +115,7 @@ ${text}`,
     ],
   });
 
-  const content = response.content[0];
-  if (content.type !== "text") throw new Error("Unexpected response type");
-
-  return parseJSON(content.text);
+  return extractJSON(response);
 }
 
 export async function generateSummary(
@@ -150,8 +156,5 @@ ${text.slice(0, 4000)}`,
     ],
   });
 
-  const content = response.content[0];
-  if (content.type !== "text") throw new Error("Unexpected response type");
-
-  return parseJSON(content.text);
+  return extractJSON(response);
 }
