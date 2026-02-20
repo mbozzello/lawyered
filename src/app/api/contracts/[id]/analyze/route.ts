@@ -8,6 +8,8 @@ import {
   generateSummary,
 } from "@/lib/claude";
 
+export const maxDuration = 60;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
