@@ -3,8 +3,6 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { parseContract } from "@/lib/contract-parser";
-import { writeFile, mkdir } from "fs/promises";
-import { join } from "path";
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -24,12 +22,6 @@ export async function POST(request: NextRequest) {
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
-
-    // Save file to uploads directory
-    const uploadsDir = join(process.cwd(), "uploads");
-    await mkdir(uploadsDir, { recursive: true });
-    const filepath = join(uploadsDir, `${Date.now()}-${file.name}`);
-    await writeFile(filepath, buffer);
 
     // Parse the contract text
     const text = await parseContract(buffer, file.name);
