@@ -2,15 +2,11 @@ import { notFound } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { ReviewSummary } from "@/components/review/review-summary";
-import { ClauseCard } from "@/components/review/clause-card";
-import { RiskHeatmap } from "@/components/review/risk-heatmap";
+import { LiveClauseList } from "@/components/review/live-clause-list";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import Link from "next/link";
 import { ArrowLeft, Download, FileText } from "lucide-react";
-import { AnalysisPolling } from "@/components/review/analysis-polling";
 
 export default async function ReviewResultPage({
   params,
@@ -32,14 +28,6 @@ export default async function ReviewResultPage({
   });
 
   if (!contract) return notFound();
-
-  const highRiskCount = contract.clauses.filter(
-    (c) => c.riskLevel === "high"
-  ).length;
-  const totalViolations = contract.clauses.reduce(
-    (acc, c) => acc + (c.playbookViolations as unknown[]).length,
-    0
-  );
 
   return (
     <div className="space-y-6">
@@ -79,66 +67,18 @@ export default async function ReviewResultPage({
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/api/export/pdf?id=${contract.id}`}>
-              <Download className="mr-1 h-4 w-4" />
-              Export PDF
-            </a>
-          </Button>
+          {contract.status === "completed" && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/export/pdf?id=${contract.id}`}>
+                <Download className="mr-1 h-4 w-4" />
+                Export PDF
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
-      {contract.status === "completed" && contract.summary ? (
-        <Tabs defaultValue="summary">
-          <TabsList>
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="clauses">
-              Clauses ({contract.clauses.length})
-            </TabsTrigger>
-            <TabsTrigger value="heatmap">Risk Map</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="summary" className="mt-4">
-            <ReviewSummary
-              summary={{
-                overallRisk: contract.summary.overallRisk,
-                executiveSummary: contract.summary.executiveSummary,
-                keyFindings: contract.summary.keyFindings as string[],
-                missingClauses: contract.summary.missingClauses as string[],
-              }}
-              contractType={contract.contractType}
-              paperType={contract.paperType}
-              clauseCount={contract.clauses.length}
-              highRiskCount={highRiskCount}
-              violationCount={totalViolations}
-            />
-          </TabsContent>
-
-          <TabsContent value="clauses" className="mt-4 space-y-3">
-            {contract.clauses.map((clause) => (
-              <ClauseCard
-                key={clause.id}
-                clause={{
-                  ...clause,
-                  playbookViolations:
-                    clause.playbookViolations as unknown as {
-                      ruleName: string;
-                      category: string;
-                      severity: string;
-                      description: string;
-                    }[],
-                }}
-              />
-            ))}
-          </TabsContent>
-
-          <TabsContent value="heatmap" className="mt-4">
-            <RiskHeatmap clauses={contract.clauses} />
-          </TabsContent>
-        </Tabs>
-      ) : contract.status === "analyzing" ? (
-        <AnalysisPolling contractId={contract.id} />
-      ) : contract.status === "error" ? (
+      {contract.status === "error" ? (
         <div className="flex flex-col items-center justify-center py-20">
           <p className="text-lg font-medium text-destructive">
             Analysis failed
@@ -148,7 +88,33 @@ export default async function ReviewResultPage({
             again.
           </p>
         </div>
-      ) : null}
+      ) : (
+        <LiveClauseList
+          contractId={contract.id}
+          contractType={contract.contractType}
+          paperType={contract.paperType}
+          initialClauses={contract.clauses.map((c) => ({
+            ...c,
+            playbookViolations: c.playbookViolations as unknown as {
+              ruleName: string;
+              category: string;
+              severity: string;
+              description: string;
+            }[],
+          }))}
+          initialSummary={
+            contract.summary
+              ? {
+                  overallRisk: contract.summary.overallRisk,
+                  executiveSummary: contract.summary.executiveSummary,
+                  keyFindings: contract.summary.keyFindings as string[],
+                  missingClauses: contract.summary.missingClauses as string[],
+                }
+              : null
+          }
+          initialStatus={contract.status}
+        />
+      )}
     </div>
   );
 }

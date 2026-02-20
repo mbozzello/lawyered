@@ -10,6 +10,7 @@ import {
   generateSummary,
 } from "@/lib/claude";
 import { chunkContractText } from "@/lib/chunker";
+import type { ClauseData } from "@/types";
 
 export const maxDuration = 300;
 
@@ -50,6 +51,45 @@ export async function POST(
   after(runAnalysisPipeline(id, contract.originalText, userId));
 
   return NextResponse.json({ status: "analyzing", contractId: id });
+}
+
+/** Save a batch of clauses to the DB immediately */
+async function saveClauseBatch(
+  contractId: string,
+  clauses: ClauseData[],
+  clauseNumberOffset: number
+) {
+  if (clauses.length === 0) return;
+  await prisma.clauseAnalysis.createMany({
+    data: clauses.map((clause, i) => ({
+      contractId,
+      clauseNumber: clauseNumberOffset + i + 1,
+      clauseType: clause.clauseType,
+      originalText: clause.originalText,
+      riskLevel: clause.riskLevel,
+      explanation: clause.explanation,
+      playbookViolations: clause.playbookViolations as object[],
+      redlineSuggestion: clause.redlineSuggestion || null,
+      redlineExplanation: clause.redlineExplanation || null,
+    })),
+  });
+}
+
+/** After all chunks, renumber clauses sequentially to fix gaps from parallel ordering */
+async function renumberClauses(contractId: string) {
+  const clauses = await prisma.clauseAnalysis.findMany({
+    where: { contractId },
+    orderBy: { clauseNumber: "asc" },
+    select: { id: true },
+  });
+  await Promise.all(
+    clauses.map((clause, idx) =>
+      prisma.clauseAnalysis.update({
+        where: { id: clause.id },
+        data: { clauseNumber: idx + 1 },
+      })
+    )
+  );
 }
 
 async function runAnalysisPipeline(
@@ -102,27 +142,33 @@ async function runAnalysisPipeline(
       data: { totalChunks: chunks.length },
     });
 
-    let clauseAnalysis;
+    let allClauses: ClauseData[];
     let completedSoFar = 0;
+    let clausesSavedSoFar = 0;
 
     if (isSmallContract) {
-      // Small contract: single-call path (same as before)
-      clauseAnalysis = await analyzeClausesWithPlaybook(
+      // Small contract: single-call path — save immediately
+      allClauses = await analyzeClausesWithPlaybook(
         text,
         classification.contractType,
         rules
       );
+      await saveClauseBatch(contractId, allClauses, 0);
       await prisma.contract.update({
         where: { id: contractId },
         data: { analysisProgress: 80, completedChunks: 1 },
       });
     } else {
-      // Large contract: chunked parallel analysis
-      clauseAnalysis = await analyzeClausesChunked(
+      // Large contract: chunked parallel — save each chunk's clauses immediately
+      allClauses = await analyzeClausesChunked(
         chunks,
         classification.contractType,
         rules,
-        async (_chunkIndex) => {
+        async (_chunkIndex, chunkClauses) => {
+          // Save this chunk's clauses to DB right away so frontend can display them
+          await saveClauseBatch(contractId, chunkClauses, clausesSavedSoFar);
+          clausesSavedSoFar += chunkClauses.length;
+
           completedSoFar++;
           const progress = 10 + Math.round((completedSoFar / chunks.length) * 70);
           await prisma.contract.update({
@@ -134,33 +180,21 @@ async function runAnalysisPipeline(
           });
         }
       );
-    }
 
-    // Step 4: Save clause analysis
-    await prisma.clauseAnalysis.createMany({
-      data: clauseAnalysis.map((clause) => ({
-        contractId,
-        clauseNumber: clause.clauseNumber,
-        clauseType: clause.clauseType,
-        originalText: clause.originalText,
-        riskLevel: clause.riskLevel,
-        explanation: clause.explanation,
-        playbookViolations: clause.playbookViolations as object[],
-        redlineSuggestion: clause.redlineSuggestion || null,
-        redlineExplanation: clause.redlineExplanation || null,
-      })),
-    });
+      // Renumber all clauses sequentially after dedup/merge
+      await renumberClauses(contractId);
+    }
 
     await prisma.contract.update({
       where: { id: contractId },
       data: { analysisProgress: 85, analysisStage: "summarizing" },
     });
 
-    // Step 5: Generate summary
+    // Step 4: Generate summary
     const summary = await generateSummary(
       text,
       classification.contractType,
-      clauseAnalysis
+      allClauses
     );
 
     await prisma.reviewSummary.create({
@@ -173,7 +207,7 @@ async function runAnalysisPipeline(
       },
     });
 
-    // Step 6: Mark complete
+    // Step 5: Mark complete
     await prisma.contract.update({
       where: { id: contractId },
       data: {

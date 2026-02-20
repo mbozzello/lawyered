@@ -119,10 +119,17 @@ export function UploadZone() {
             });
           }
 
-          if (contract.status === "completed") {
-            setProgress(100);
-            setStage("Complete!");
-            toast.success("Contract analyzed successfully!");
+          // Redirect to review page once classification is done and analysis starts
+          // The LiveClauseList component on the review page handles progressive loading
+          if (
+            contract.analysisStage === "analyzing" ||
+            contract.status === "completed"
+          ) {
+            if (contract.status === "completed") {
+              toast.success("Contract analyzed successfully!");
+            } else {
+              toast.success("Redirecting to live review...");
+            }
             router.push(`/dashboard/review/${contractId}`);
             return;
           }
